@@ -13,10 +13,11 @@ import (
 type EpisodeService struct {
 	episodes   *repositories.EpisodeRepository
 	transcript transcript.Service
+	histories  *repositories.ListeningHistoryRepository
 }
 
-func NewEpisodeService(episodes *repositories.EpisodeRepository, t transcript.Service) *EpisodeService {
-	return &EpisodeService{episodes: episodes, transcript: t}
+func NewEpisodeService(episodes *repositories.EpisodeRepository, t transcript.Service, histories *repositories.ListeningHistoryRepository) *EpisodeService {
+	return &EpisodeService{episodes: episodes, transcript: t, histories: histories}
 }
 
 func (s *EpisodeService) Create(ctx context.Context, podcastOwnerID, userID, podcastID uint, title, description, audioPath string, tags []string) (*models.Episode, error) {
@@ -61,8 +62,14 @@ func (s *EpisodeService) ListByPodcast(podcastID uint, page, pageSize int) ([]mo
 	return s.episodes.ListByPodcast(podcastID, page, pageSize)
 }
 
-func (s *EpisodeService) AddPlay(id uint) error {
-	return s.episodes.IncrementPlayCount(id)
+func (s *EpisodeService) AddPlay(userID, id uint) error {
+	if err := s.episodes.IncrementPlayCount(id); err != nil {
+		return err
+	}
+	if s.histories != nil && userID > 0 {
+		_ = s.histories.Save(userID, id)
+	}
+	return nil
 }
 
 func (s *EpisodeService) Delete(currentUser uint, isAdmin bool, episodeID uint) error {

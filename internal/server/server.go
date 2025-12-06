@@ -39,7 +39,7 @@ func New(
 	router.GET("/users/:id/podcasts", podcastHandler.ListByUser)
 
 	router.GET("/episodes/:id", episodeHandler.Get)
-	router.GET("/podcasts/:podcast_id/episodes", episodeHandler.ListForPodcast)
+	router.GET("/podcasts/:id/episodes", episodeHandler.ListForPodcast)
 	router.GET("/episodes/popular", episodeHandler.Popular)
 	router.POST("/episodes/:id/plays", episodeHandler.Play)
 
@@ -62,7 +62,7 @@ func New(
 		authRequired.PATCH("/podcasts/:id", podcastHandler.Update)
 		authRequired.DELETE("/podcasts/:id", podcastHandler.Delete)
 
-		authRequired.POST("/podcasts/:podcast_id/episodes", episodeHandler.Create)
+		authRequired.POST("/podcasts/:id/episodes", episodeHandler.Create)
 
 		authRequired.POST("/episodes/:id/like", likeHandler.Like)
 		authRequired.DELETE("/episodes/:id/like", likeHandler.Unlike)

@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -9,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/hajimehoshi/go-mp3"
 
 	"podvibe/internal/auth"
 	"podvibe/internal/models"
@@ -17,17 +21,18 @@ import (
 )
 
 type EpisodeHandler struct {
-	episodes *services.EpisodeService
-	podcasts *services.PodcastService
-	storage  *storage.LocalStorage
+	episodes  *services.EpisodeService
+	podcasts  *services.PodcastService
+	storage   *storage.LocalStorage
+	jwtSecret string
 }
 
-func NewEpisodeHandler(episodes *services.EpisodeService, podcasts *services.PodcastService, storage *storage.LocalStorage) *EpisodeHandler {
-	return &EpisodeHandler{episodes: episodes, podcasts: podcasts, storage: storage}
+func NewEpisodeHandler(episodes *services.EpisodeService, podcasts *services.PodcastService, storage *storage.LocalStorage, jwtSecret string) *EpisodeHandler {
+	return &EpisodeHandler{episodes: episodes, podcasts: podcasts, storage: storage, jwtSecret: jwtSecret}
 }
 
 func (h *EpisodeHandler) Create(c *gin.Context) {
-	podcastID, _ := strconv.Atoi(c.Param("podcast_id"))
+	podcastID, _ := strconv.Atoi(c.Param("id"))
 	title := c.PostForm("title")
 	if title == "" {
 		RespondError(c, http.StatusBadRequest, "validation_error", "title is required")
@@ -44,11 +49,30 @@ func (h *EpisodeHandler) Create(c *gin.Context) {
 		RespondError(c, http.StatusBadRequest, "validation_error", "audio file is required")
 		return
 	}
-	ext := filepath.Ext(file.Filename)
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	allowedExt := map[string]bool{".mp3": true, ".wav": true}
+	if !allowedExt[ext] {
+		RespondError(c, http.StatusBadRequest, "validation_error", "unsupported audio format (allowed: mp3, wav)")
+		return
+	}
 	subPath := fmt.Sprintf("audio/%d/%d_%d%s", uid, podcastID, time.Now().UnixNano(), ext)
 	f, _ := file.Open()
 	defer f.Close()
-	audioPath, err := h.storage.Save(subPath, f)
+	data, err := io.ReadAll(f)
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "validation_error", "failed to read audio file")
+		return
+	}
+	dur, err := audioDuration(ext, data)
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	if dur > 3*time.Minute {
+		RespondError(c, http.StatusBadRequest, "validation_error", "audio must be shorter than 3 minutes")
+		return
+	}
+	audioPath, err := h.storage.Save(subPath, bytes.NewReader(data))
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "internal_error", err.Error())
 		return
@@ -84,8 +108,82 @@ func (h *EpisodeHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, h.serializeEpisode(ep))
 }
 
+func audioDuration(ext string, data []byte) (time.Duration, error) {
+	switch ext {
+	case ".mp3":
+		dec, err := mp3.NewDecoder(bytes.NewReader(data))
+		if err != nil {
+			return 0, fmt.Errorf("cannot decode mp3")
+		}
+		sr := dec.SampleRate()
+		if sr == 0 {
+			return 0, fmt.Errorf("invalid mp3 sample rate")
+		}
+		length := dec.Length()
+		if length == 0 {
+			buf := make([]byte, 2048)
+			var total int64
+			for {
+				n, err := dec.Read(buf)
+				total += int64(n)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return 0, fmt.Errorf("cannot read mp3")
+				}
+			}
+			length = total
+		}
+		seconds := float64(length) / float64(sr*4) // 2 channels * 2 bytes per sample
+		return time.Duration(seconds * float64(time.Second)), nil
+	case ".wav":
+		dur, err := parseWAVDuration(data)
+		if err != nil {
+			return 0, fmt.Errorf("cannot read wav: %w", err)
+		}
+		return dur, nil
+	default:
+		return 0, fmt.Errorf("unsupported audio format")
+	}
+}
+
+func parseWAVDuration(data []byte) (time.Duration, error) {
+	if len(data) < 44 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
+		return 0, fmt.Errorf("invalid wav header")
+	}
+	var byteRate uint32
+	pos := 12
+	for pos+8 <= len(data) {
+		chunkID := string(data[pos : pos+4])
+		chunkSize := int(binary.LittleEndian.Uint32(data[pos+4 : pos+8]))
+		pos += 8
+		if pos+chunkSize > len(data) {
+			return 0, fmt.Errorf("corrupt wav chunk")
+		}
+		switch chunkID {
+		case "fmt ":
+			if chunkSize < 16 {
+				return 0, fmt.Errorf("invalid fmt chunk")
+			}
+			byteRate = binary.LittleEndian.Uint32(data[pos+8 : pos+12])
+		case "data":
+			if byteRate == 0 {
+				return 0, fmt.Errorf("missing fmt chunk")
+			}
+			seconds := float64(chunkSize) / float64(byteRate)
+			return time.Duration(seconds * float64(time.Second)), nil
+		}
+		pos += chunkSize
+		if chunkSize%2 == 1 {
+			pos++
+		}
+	}
+	return 0, fmt.Errorf("data chunk not found")
+}
+
 func (h *EpisodeHandler) ListForPodcast(c *gin.Context) {
-	podcastID, _ := strconv.Atoi(c.Param("podcast_id"))
+	podcastID, _ := strconv.Atoi(c.Param("id"))
 	page, pageSize := parsePagination(c)
 	list, total, err := h.episodes.ListByPodcast(uint(podcastID), page, pageSize)
 	if err != nil {
@@ -101,7 +199,16 @@ func (h *EpisodeHandler) ListForPodcast(c *gin.Context) {
 
 func (h *EpisodeHandler) Play(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	if err := h.episodes.AddPlay(uint(id)); err != nil {
+	var userID uint
+	if authHeader := c.GetHeader("Authorization"); authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+			if claims, err := auth.ParseToken(parts[1], h.jwtSecret); err == nil {
+				userID = claims.UserID
+			}
+		}
+	}
+	if err := h.episodes.AddPlay(userID, uint(id)); err != nil {
 		RespondError(c, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}

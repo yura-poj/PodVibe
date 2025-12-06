@@ -1,10 +1,11 @@
-FROM golang:1.21 AS builder
+FROM golang:1.23 AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+RUN mkdir -p /app/storage
 RUN CGO_ENABLED=0 GOOS=linux go build -o podvibe ./cmd/api
 
 FROM gcr.io/distroless/base-debian12

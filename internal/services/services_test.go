@@ -143,10 +143,11 @@ func TestPodcastService_Permissions(t *testing.T) {
 func TestEpisodeService_CreatePlayDelete(t *testing.T) {
 	db := newTestDB(t)
 	episodeRepo := repositories.NewEpisodeRepository(db)
+	historyRepo := repositories.NewListeningHistoryRepository(db)
 	podcastRepo := repositories.NewPodcastRepository(db)
 	podcast := createPodcast(t, podcastRepo, 10, "Pod")
 	tr := &stubTranscript{done: make(chan struct{}), text: "hello"}
-	svc := NewEpisodeService(episodeRepo, tr)
+	svc := NewEpisodeService(episodeRepo, tr, historyRepo)
 
 	_, err := svc.Create(context.Background(), podcast.OwnerID, podcast.OwnerID+1, podcast.ID, "Ep1", "", "a.mp3", nil)
 	if err == nil {
@@ -167,7 +168,7 @@ func TestEpisodeService_CreatePlayDelete(t *testing.T) {
 		t.Fatalf("transcript not updated: %+v", saved)
 	}
 
-	if err := svc.AddPlay(ep.ID); err != nil {
+	if err := svc.AddPlay(0, ep.ID); err != nil {
 		t.Fatalf("add play: %v", err)
 	}
 	afterPlay, _ := episodeRepo.FindByID(ep.ID)
@@ -326,10 +327,11 @@ func TestAdminService_BanUnban(t *testing.T) {
 	podcastRepo := repositories.NewPodcastRepository(db)
 	episodeRepo := repositories.NewEpisodeRepository(db)
 	commentRepo := repositories.NewCommentRepository(db)
+	historyRepo := repositories.NewListeningHistoryRepository(db)
 
 	userSvc := NewUserService(userRepo)
 	podcastSvc := NewPodcastService(podcastRepo)
-	episodeSvc := NewEpisodeService(episodeRepo, &stubTranscript{text: "x"})
+	episodeSvc := NewEpisodeService(episodeRepo, &stubTranscript{text: "x"}, historyRepo)
 	commentSvc := NewCommentService(commentRepo, episodeRepo)
 	adminSvc := NewAdminService(userSvc, podcastSvc, episodeSvc, commentSvc)
 

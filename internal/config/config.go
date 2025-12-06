@@ -1,7 +1,8 @@
 package config
 
 import (
-	"log"
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -25,25 +26,31 @@ func getEnv(key, def string) string {
 	return def
 }
 
-// Load reads environment variables and fills Config with defaults when missing.
-func Load() Config {
+// Load reads environment variables, validates mandatory fields, and returns config.
+// Required: DB_DSN, JWT_SECRET. Others have safe defaults.
+func Load() (Config, error) {
 	appPort := getEnv("APP_PORT", "8080")
-	dbDSN := getEnv("DB_DSN", "postgres://postgres:postgres@localhost:5432/podvibe?sslmode=disable")
+	dbDSN := os.Getenv("DB_DSN")
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if dbDSN == "" {
+		return Config{}, errors.New("DB_DSN is required")
+	}
+	if jwtSecret == "" {
+		return Config{}, errors.New("JWT_SECRET is required")
+	}
+
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
-	jwtSecret := getEnv("JWT_SECRET", "dev-secret")
 	accessMinutes := getEnv("ACCESS_TOKEN_MINUTES", "20")
 	refreshDays := getEnv("REFRESH_TOKEN_DAYS", "14")
 	storage := getEnv("STORAGE_PATH", "./storage")
 
 	accessTTL, err := strconv.Atoi(accessMinutes)
-	if err != nil {
-		log.Printf("invalid ACCESS_TOKEN_MINUTES, using default 20: %v", err)
-		accessTTL = 20
+	if err != nil || accessTTL <= 0 {
+		return Config{}, fmt.Errorf("invalid ACCESS_TOKEN_MINUTES: %v", err)
 	}
 	refreshTTL, err := strconv.Atoi(refreshDays)
-	if err != nil {
-		log.Printf("invalid REFRESH_TOKEN_DAYS, using default 14: %v", err)
-		refreshTTL = 14
+	if err != nil || refreshTTL <= 0 {
+		return Config{}, fmt.Errorf("invalid REFRESH_TOKEN_DAYS: %v", err)
 	}
 
 	return Config{
@@ -54,5 +61,5 @@ func Load() Config {
 		AccessTokenTTL:  time.Duration(accessTTL) * time.Minute,
 		RefreshTokenTTL: time.Duration(refreshTTL) * 24 * time.Hour,
 		StoragePath:     storage,
-	}
+	}, nil
 }

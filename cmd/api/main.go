@@ -22,7 +22,10 @@ import (
 
 func main() {
 	_ = godotenv.Load()
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config error: %v", err)
+	}
 
 	logger, err := zap.NewProduction()
 	if err != nil {
@@ -45,6 +48,7 @@ func main() {
 		&models.Playlist{},
 		&models.PlaylistItem{},
 		&models.RefreshToken{},
+		&models.ListeningHistory{},
 	); err != nil {
 		logger.Fatal("failed to migrate database", zap.Error(err))
 	}
@@ -59,6 +63,7 @@ func main() {
 	tokenRepo := repositories.NewTokenRepository(db)
 	podcastRepo := repositories.NewPodcastRepository(db)
 	episodeRepo := repositories.NewEpisodeRepository(db)
+	historyRepo := repositories.NewListeningHistoryRepository(db)
 	followRepo := repositories.NewFollowRepository(db)
 	likeRepo := repositories.NewLikeRepository(db)
 	commentRepo := repositories.NewCommentRepository(db)
@@ -70,7 +75,7 @@ func main() {
 	authService := services.NewAuthService(userRepo, tokenRepo, cfg)
 	podcastService := services.NewPodcastService(podcastRepo)
 	transcriptService := transcript.NewDummyService()
-	episodeService := services.NewEpisodeService(episodeRepo, transcriptService)
+	episodeService := services.NewEpisodeService(episodeRepo, transcriptService, historyRepo)
 	likeService := services.NewLikeService(likeRepo, episodeRepo)
 	commentService := services.NewCommentService(commentRepo, episodeRepo)
 	followService := services.NewFollowService(followRepo)
@@ -82,7 +87,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService)
 	userHandler := handlers.NewUserHandler(userService)
 	podcastHandler := handlers.NewPodcastHandler(podcastService, episodeService, store)
-	episodeHandler := handlers.NewEpisodeHandler(episodeService, podcastService, store)
+	episodeHandler := handlers.NewEpisodeHandler(episodeService, podcastService, store, cfg.JWTSecret)
 	likeHandler := handlers.NewLikeHandler(likeService)
 	commentHandler := handlers.NewCommentHandler(commentService, episodeService)
 	followHandler := handlers.NewFollowHandler(followService)
