@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -318,6 +320,47 @@ func TestFeedService_Feed(t *testing.T) {
 	}
 	if items[0].Author.ID != u2.ID || items[0].Podcast.ID != pod.ID {
 		t.Fatalf("feed item mismatch")
+	}
+}
+
+func TestRecommendationService_Order(t *testing.T) {
+	db := newTestDB(t)
+	followRepo := repositories.NewFollowRepository(db)
+	feedRepo := repositories.NewFeedRepository(db)
+	podcastRepo := repositories.NewPodcastRepository(db)
+	userRepo := repositories.NewUserRepository(db)
+	episodeRepo := repositories.NewEpisodeRepository(db)
+
+	user := createUser(t, userRepo, "me@example.com", "me")
+	followed := createUser(t, userRepo, "f@example.com", "followed")
+	other := createUser(t, userRepo, "o@example.com", "other")
+	_ = followRepo.Follow(user.ID, followed.ID)
+
+	followedPod := createPodcast(t, podcastRepo, followed.ID, "Fav")
+	otherPod := createPodcast(t, podcastRepo, other.ID, "Other")
+
+	newerFollow := &models.Episode{PodcastID: followedPod.ID, Title: "new", AudioPath: "n.mp3", PublishedAt: time.Now().Add(-10 * time.Minute)}
+	olderFollow := &models.Episode{PodcastID: followedPod.ID, Title: "old", AudioPath: "o.mp3", PublishedAt: time.Now().Add(-2 * time.Hour)}
+	newestOther := &models.Episode{PodcastID: otherPod.ID, Title: "other", AudioPath: "x.mp3", PublishedAt: time.Now()}
+	for _, ep := range []*models.Episode{newerFollow, olderFollow, newestOther} {
+		if err := episodeRepo.Create(ep, nil); err != nil {
+			t.Fatalf("create episode: %v", err)
+		}
+	}
+
+	svc := NewRecommendationService(followRepo, feedRepo, podcastRepo, userRepo)
+	items, total, err := svc.Recommend(user.ID, 1, 10)
+	if err != nil {
+		t.Fatalf("recommend: %v", err)
+	}
+	if total != 3 || len(items) != 3 {
+		t.Fatalf("expected 3 recommendations, got %d total %d", len(items), total)
+	}
+	if items[0].Episode.Title != "new" || items[1].Episode.Title != "old" || items[2].Episode.Title != "other" {
+		t.Fatalf("unexpected ordering: %+v", []string{items[0].Episode.Title, items[1].Episode.Title, items[2].Episode.Title})
+	}
+	if items[0].Reason != "from_follow" || items[2].Reason != "fresh" {
+		t.Fatalf("unexpected reasons: %s, %s", items[0].Reason, items[2].Reason)
 	}
 }
 

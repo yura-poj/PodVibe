@@ -83,4 +83,5 @@ internal/transcript# dummy transcription service
   ```bash
   curl -H "Authorization: Bearer <ACCESS_TOKEN>" "http://localhost:8080/feed?page=1&page_size=20"
   curl "http://localhost:8080/episodes/popular?page=1&page_size=20"
+  curl -H "Authorization: Bearer <ACCESS_TOKEN>" "http://localhost:8080/recommendations?page=1&page_size=20"
   ```

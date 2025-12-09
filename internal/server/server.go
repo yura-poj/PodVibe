@@ -19,6 +19,7 @@ func New(
 	commentHandler *handlers.CommentHandler,
 	followHandler *handlers.FollowHandler,
 	feedHandler *handlers.FeedHandler,
+	recommendationHandler *handlers.RecommendationHandler,
 	playlistHandler *handlers.PlaylistHandler,
 	adminHandler *handlers.AdminHandler,
 	jwtSecret string,
@@ -74,6 +75,7 @@ func New(
 		authRequired.DELETE("/users/:id/follow", followHandler.Unfollow)
 
 		authRequired.GET("/feed", feedHandler.Feed)
+		authRequired.GET("/recommendations", recommendationHandler.Recommend)
 
 		authRequired.POST("/playlists", playlistHandler.Create)
 		authRequired.POST("/playlists/:id/items", playlistHandler.AddItem)

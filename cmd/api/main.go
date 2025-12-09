@@ -81,6 +81,7 @@ func main() {
 	followService := services.NewFollowService(followRepo)
 	playlistService := services.NewPlaylistService(playlistRepo)
 	feedService := services.NewFeedService(followRepo, feedRepo, podcastRepo, userRepo)
+	recommendationService := services.NewRecommendationService(followRepo, feedRepo, podcastRepo, userRepo)
 	adminService := services.NewAdminService(userService, podcastService, episodeService, commentService)
 
 	// Handlers
@@ -92,6 +93,7 @@ func main() {
 	commentHandler := handlers.NewCommentHandler(commentService, episodeService)
 	followHandler := handlers.NewFollowHandler(followService)
 	feedHandler := handlers.NewFeedHandler(feedService)
+	recommendationHandler := handlers.NewRecommendationHandler(recommendationService)
 	playlistHandler := handlers.NewPlaylistHandler(playlistService)
 	adminHandler := handlers.NewAdminHandler(adminService, userService)
 
@@ -105,6 +107,7 @@ func main() {
 		commentHandler,
 		followHandler,
 		feedHandler,
+		recommendationHandler,
 		playlistHandler,
 		adminHandler,
 		cfg.JWTSecret,
