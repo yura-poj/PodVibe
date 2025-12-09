@@ -55,13 +55,12 @@ internal/transcript# dummy transcription service
     -H "Content-Type: application/json" \
     -d '{"email":"user@example.com","password":"secret123"}'
   ```
-- Create podcast (with cover):
+- Create podcast:
   ```bash
   curl -X POST http://localhost:8080/podcasts \
     -H "Authorization: Bearer <ACCESS_TOKEN>" \
     -F "title=My Podcast" \
-    -F "description=About stuff" \
-    -F "cover=@/path/to/cover.jpg"
+    -F "description=About stuff"
   ```
 - Create episode (audio <3 minutes, mp3/wav):
   ```bash
